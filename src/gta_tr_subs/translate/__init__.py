@@ -39,8 +39,9 @@ def build_router(
     if fake:
         from .fake import FakeTranslator
 
-        cloud = FakeTranslator("cloud", delay=0.35, prefix="[bulut] ")
-        local = FakeTranslator("local", delay=0.12, prefix="[yerel] ")
+        # Çeviri yapmaz: metni olduğu gibi geri verir. Önek, bunun sahte olduğunu belli etsin.
+        cloud = FakeTranslator("cloud", delay=0.35, prefix="[SAHTE bulut — çeviri yok] ")
+        local = FakeTranslator("local", delay=0.12, prefix="[SAHTE yerel — çeviri yok] ")
     else:
         from .gemini import GeminiTranslator
         from .ollama_local import OllamaTranslator
