@@ -60,7 +60,16 @@ class StatsEvent:
     last_source: str = ""
 
 
-Event = ShowEvent | HideEvent | StatsEvent
+@dataclass(frozen=True, slots=True)
+class ManualEvent:
+    """Test panelinden elle gönderilen bir satırın çeviri sonucu."""
+
+    source: str
+    result: TranslationResult | None  # None + done: hiçbir katman yanıt vermedi
+    done: bool = False
+
+
+Event = ShowEvent | HideEvent | StatsEvent | ManualEvent
 
 
 @dataclass(slots=True)
@@ -123,6 +132,7 @@ class Pipeline:
         self._last_mask: np.ndarray | None = None
         self._last_source = ""
         self._ocr_error_at = 0.0
+        self._manual_tasks: set[asyncio.Task] = set()
         self.frames_processed = 0
 
     # --------------------------------------------------- UI thread'inden kontrol
@@ -138,6 +148,30 @@ class Pipeline:
 
     def cycle_mode(self) -> None:
         self._call_soon(self.router.cycle_mode)
+
+    def set_mode(self, mode: str) -> None:
+        def apply() -> None:
+            self.router.mode = mode
+
+        self._call_soon(apply)
+
+    def translate_manual(self, text: str) -> None:
+        """Verilen metni yönlendiriciden geçirir; sonuçlar ``ManualEvent`` olarak bildirilir."""
+
+        def start() -> None:
+            task = asyncio.create_task(self._manual(text))
+            self._manual_tasks.add(task)
+            task.add_done_callback(self._manual_tasks.discard)
+
+        self._call_soon(start)
+
+    async def _manual(self, text: str) -> None:
+        final = None
+        try:
+            final = await self.router.translate(text, lambda r: self._emit(ManualEvent(text, r)))
+        except Exception:
+            logger.exception("Manuel çeviri hatası")
+        self._emit(ManualEvent(text, final, done=True))
 
     def stop(self) -> None:
         self._stop = True

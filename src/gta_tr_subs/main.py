@@ -31,6 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--simulate-offline", action="store_true", help="bulut istemcisini hataya zorla")
     parser.add_argument("--fake-translate", action="store_true", help="sahte çevirmenler (ağ/model gerekmez)")
     parser.add_argument("--console", action="store_true", help="overlay olmadan konsol modu")
+    parser.add_argument("--ui", action="store_true", help="test paneli: kaynak seç, canlı izle, gecikmeleri ölç")
     parser.add_argument("--debug", action="store_true", help="debug panelini aç + ayrıntılı log")
     parser.add_argument("--exit-after", type=float, default=0.0, metavar="SN", help="N saniye sonra çık (duman testi)")
     return parser
@@ -132,6 +133,11 @@ def main(argv: list[str] | None = None) -> None:
             sys.exit(asyncio.run(run_console(settings, args)))
         except KeyboardInterrupt:
             sys.exit(0)
+
+    if args.ui:
+        from .ui.test_panel import run_panel
+
+        sys.exit(run_panel(settings, args))
 
     from .app import App
 

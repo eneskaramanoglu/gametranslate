@@ -104,6 +104,27 @@ uv run gta-tr-subs --simulate-offline     # bulutu hataya zorla (yerele geçişi
 uv run gta-tr-subs --list-windows
 ```
 
+## Test paneli
+
+```bash
+uv run gta-tr-subs --ui
+```
+
+Tek pencerede kaynağı seçip pipeline'ı başlatır/durdurur ve olan biteni canlı gösterir:
+
+- **Kaynak:** açık pencerelerden biri (★ = otomatik öneri), bir video dosyası veya "Sentetik test videosu"
+  (bilinen 16 satırlık altyazı; yoksa otomatik üretilir). Video kaynağında overlay paneldeki önizlemenin üstüne biner.
+- **Önizleme:** yakalanan kare + altyazı bölgesi çerçevesi; altında OCR'a giden maske (yeşil).
+- **Şu anki satır:** okunan İngilizce, Türkçe çeviri, katman ve gecikme dökümü.
+- **Geçmiş:** her satır için kararlı olma süresi, ilk çevirinin katmanı ve gecikmesi (yeşil = hedefin altında),
+  bulut yükseltmesi geldiyse onun gecikmesi; altta p50/p95 özeti; CSV'ye kaydedilebilir.
+- **İstatistik:** fps, OCR/çeviri süreleri, devre kesici, bulut hata/zaman aşımı/kota sayaçları.
+- **Çeviri ayarları (canlı):** mod, overlay aç/kapa, İngilizceyi göster, internet kesintisi simülasyonu.
+  "Sahte çevirmen" ağ/model olmadan pipeline'ı dener (bir sonraki Başlat'ta geçerli olur).
+- **Elle çeviri testi:** yazdığın İngilizce satırı yönlendiriciden geçirir, her katmanın sonucunu ve süresini gösterir.
+
+`--ui --source video.mp4` verilirse o videoyla kendiliğinden başlar. Global kısayollar (F8–F12) panelde yoktur.
+
 ## Yapılandırma
 
 - `config.toml` — pencere başlığı, ROI, OCR motoru, eşikler, modeller, timeout'lar, mod, overlay görünümü,
