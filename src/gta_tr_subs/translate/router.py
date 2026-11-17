@@ -16,7 +16,7 @@ from loguru import logger
 
 from ..config import CacheConfig, TranslateConfig
 from ..metrics import Metrics
-from .base import TranslationError, TranslationResult, Translator
+from .base import RateLimited, TranslationError, TranslationResult, Translator
 from .cache import TranslationCache
 from .prompts import Glossary
 
@@ -69,6 +69,11 @@ class CircuitBreaker:
             self._opened_at = self._clock()
         self._probing = False
 
+    def open_for(self, seconds: float) -> None:
+        """Devreyi belirli bir süre için aç (sağlayıcı "şu kadar sonra dene" dediğinde)."""
+        self._opened_at = self._clock() - self.cooldown + max(0.0, seconds)
+        self._probing = False
+
     def release(self) -> None:
         """İstek sonuçlanmadan iptal edildi: hata sayma, deneme hakkını geri ver."""
         self._probing = False
@@ -98,6 +103,8 @@ class Router:
         self.mode = cfg.mode
         self.breaker = CircuitBreaker(cfg.breaker_failures, cfg.breaker_cooldown_s, clock)
         self.simulate_offline = False
+        self._clock = clock
+        self._cloud_calls: deque[float] = deque()  # son bulut isteklerinin zamanları
         self._context: deque[tuple[str, str]] = deque(maxlen=max(0, cfg.context_lines))
         self._last_breaker_state = "closed"
 
@@ -108,7 +115,23 @@ class Router:
         return self.mode
 
     def _cloud_configured(self) -> bool:
-        return self.simulate_offline or (self.cloud is not None and self.cloud.available)
+        if not (self.simulate_offline or (self.cloud is not None and self.cloud.available)):
+            return False
+        return self._within_rate_limit()
+
+    def _within_rate_limit(self) -> bool:
+        """İstemci tarafı hız sınırı: son 60 sn'deki bulut isteği sayısı sınırın altında mı?"""
+        limit = self.cfg.gemini.requests_per_minute
+        if limit <= 0:
+            return True
+        now = self._clock()
+        calls = self._cloud_calls
+        while calls and now - calls[0] >= 60.0:
+            calls.popleft()
+        if len(calls) < limit:
+            return True
+        self.metrics.incr("cloud.skipped_rate_limit")
+        return False
 
     def _local_usable(self) -> bool:
         return self.local is not None and self.local.available
@@ -139,9 +162,13 @@ class Router:
         return fixed
 
     # --------------------------------------------------------------- katmanlar
-    async def _run_cloud(self, text: str, on_partial: Callable[[str], None] | None) -> str | None:
+    async def _run_cloud(
+        self, text: str, on_partial: Callable[[str], None] | None, timeout_ms: int | None = None
+    ) -> str | None:
         """Bulut isteği; zaman aşımı/hata devre kesiciye işlenir. Başarısızsa None."""
+        timeout_ms = timeout_ms or self.cfg.cloud_timeout_ms
         start = time.perf_counter()
+        self._cloud_calls.append(self._clock())
         try:
             if self.simulate_offline:
                 await asyncio.sleep(0.05)
@@ -149,15 +176,26 @@ class Router:
             assert self.cloud is not None
             out = await asyncio.wait_for(
                 self.cloud.translate(text, list(self._context), on_partial),
-                timeout=self.cfg.cloud_timeout_ms / 1000.0,
+                timeout=timeout_ms / 1000.0,
             )
         except asyncio.CancelledError:
             self.breaker.release()
             raise
+        except RateLimited as exc:
+            # Kota doldu: bildirilen süre boyunca bulutu hiç deneme
+            self.breaker.open_for(exc.retry_after)
+            self.metrics.incr("cloud.rate_limited")
+            logger.warning("{} → o zamana dek yalnızca yerel", exc)
+            self._last_breaker_state = "open"
+            self.metrics.set_value("breaker", "open")
+            return None
         except (TranslationError, asyncio.TimeoutError) as exc:
             self.breaker.failure()
             self.metrics.incr("cloud.errors")
-            reason = "zaman aşımı" if isinstance(exc, asyncio.TimeoutError) else str(exc)
+            timed_out = isinstance(exc, asyncio.TimeoutError)
+            if timed_out:
+                self.metrics.incr("cloud.timeouts")
+            reason = f"zaman aşımı ({timeout_ms} ms)" if timed_out else str(exc)
             logger.debug("Bulut hatası: {}", reason)
             self._note_breaker()
             return None
@@ -237,7 +275,8 @@ class Router:
 
         if self.mode == "race" and use_cloud and self._local_usable():
             tasks: dict[asyncio.Task[str | None], str] = {
-                asyncio.create_task(self._run_cloud(text, on_cloud_partial)): "cloud",
+                # yarışta yerel sonuç zaten ekranda olacağı için buluta daha uzun süre tanınır
+                asyncio.create_task(self._run_cloud(text, on_cloud_partial, self.cfg.race_cloud_timeout_ms)): "cloud",
                 asyncio.create_task(self._run_local(text)): "local",
             }
             try:

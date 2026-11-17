@@ -204,6 +204,40 @@ async def test_glossary_enforced_on_provider_output():
     assert final.text == "Sakin ol, Lucia."
 
 
+async def test_client_side_rate_limit_skips_cloud_then_recovers():
+    clock = Clock()
+    cloud, local = FakeTranslator("cloud", prefix="C:"), FakeTranslator("local", delay=0.01, prefix="L:")
+    router = make_router(cloud, local, clock=clock, mode="cloud_first")
+    router.cfg.gemini.requests_per_minute = 3
+    layers = [(await run(router, f"line {i}"))[0].layer for i in range(5)]
+    assert layers == ["cloud", "cloud", "cloud", "local", "local"]  # 4. ve 5. istek sınırı aşardı
+    assert len(cloud.calls) == 3 and router.breaker.state == "closed"
+    clock.now += 61
+    assert (await run(router, "line 9"))[0].layer == "cloud"
+
+
+async def test_provider_429_opens_breaker_for_retry_after():
+    from gta_tr_subs.translate.base import RateLimited
+
+    class Limited(FakeTranslator):
+        async def translate(self, text, context, on_partial=None):
+            self.calls.append(text)
+            raise RateLimited("kota", retry_after=57.0)
+
+    clock = Clock()
+    cloud, local = Limited("cloud"), FakeTranslator("local", prefix="L:")
+    router = make_router(cloud, local, clock=clock, mode="cloud_first")
+    assert (await run(router, "a"))[0].layer == "local"
+    assert router.breaker.state == "open"  # tek 429 yeter
+    await run(router, "b")
+    clock.now += 50
+    await run(router, "c")
+    assert len(cloud.calls) == 1  # 57 sn dolmadan denenmez
+    clock.now += 8
+    await run(router, "d")
+    assert len(cloud.calls) == 2
+
+
 def test_cycle_mode():
     router = make_router(FakeTranslator("cloud"), FakeTranslator("local"))
     assert [router.cycle_mode() for _ in range(3)] == ["cloud_first", "local_only", "race"]

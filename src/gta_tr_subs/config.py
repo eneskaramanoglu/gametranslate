@@ -94,7 +94,10 @@ class GeminiConfig(BaseModel):
     # "auto": modele göre en düşük seviye; "off": thinking_budget=0;
     # "minimal"/"low": thinking_level; "default": hiç gönderme
     thinking: Literal["auto", "off", "minimal", "low", "default"] = "auto"
-    max_output_tokens: int = 200
+    max_output_tokens: int = 400
+    # İstemci tarafı hız sınırı (ücretsiz katman: model başına 15 istek/dk). Sınıra gelince bulut
+    # atlanır, yerel katman kullanılır. Ücretli katmanda 0 = sınırsız yap.
+    requests_per_minute: int = 14
     stream_partials: bool = True
 
 
@@ -116,7 +119,8 @@ class Ct2Config(BaseModel):
 
 class TranslateConfig(BaseModel):
     mode: Literal["race", "cloud_first", "local_only"] = "race"
-    cloud_timeout_ms: int = 1200
+    cloud_timeout_ms: int = 1200  # cloud_first modunda ve cache yükseltmede
+    race_cloud_timeout_ms: int = 2500  # yarış modunda (yerel sonuç zaten ekranda)
     context_lines: int = 3
     breaker_failures: int = 2
     breaker_cooldown_s: float = 30.0

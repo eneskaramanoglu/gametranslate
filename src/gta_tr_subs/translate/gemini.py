@@ -6,11 +6,12 @@ API anahtarı yalnızca ``GEMINI_API_KEY`` ortam değişkeninden okunur; koda/lo
 from __future__ import annotations
 
 import os
+import re
 
 from loguru import logger
 
 from ..config import GeminiConfig
-from .base import OnPartial, TranslationError
+from .base import OnPartial, RateLimited, TranslationError
 from .prompts import Context, Glossary, build_system_prompt, build_user_prompt, clean_output
 
 ENV_KEY = "GEMINI_API_KEY"
@@ -96,7 +97,12 @@ class GeminiTranslator:
         except TranslationError:
             raise
         except Exception as exc:
-            message = _safe_message(exc)
+            message = _safe_message(exc, limit=4000)
+            if "429" in message or "RESOURCE_EXHAUSTED" in message:
+                found = re.search(r"retry in ([\d.]+)\s*s", message, flags=re.IGNORECASE)
+                retry_after = float(found.group(1)) if found else 60.0
+                raise RateLimited(f"Gemini kota sınırı (429), {retry_after:.0f} sn sonra", retry_after) from None
+            message = message[:300]
             # Model bu thinking ayarını desteklemiyorsa bir kez ayarı düşürüp tekrar dene
             if "thinking" in message.lower() and self._thinking_mode != "default":
                 next_mode = "default" if self._thinking_mode == "off" else "off"
@@ -139,10 +145,10 @@ class GeminiTranslator:
                 pass
 
 
-def _safe_message(exc: Exception) -> str:
+def _safe_message(exc: Exception, limit: int = 300) -> str:
     """Hata mesajını kısalt; anahtar sızmasın."""
     message = f"{type(exc).__name__}: {exc}"
     key = os.environ.get(ENV_KEY)
     if key:
         message = message.replace(key, "***")
-    return message[:300]
+    return message[:limit]

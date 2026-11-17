@@ -14,6 +14,14 @@ class TranslationError(RuntimeError):
     """Sağlayıcı hatası (ağ, zaman aşımı, boş yanıt...)."""
 
 
+class RateLimited(TranslationError):
+    """Sağlayıcı kota sınırı (HTTP 429). `retry_after` saniye sonra yeniden denenebilir."""
+
+    def __init__(self, message: str, retry_after: float = 60.0) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
 @dataclass(frozen=True, slots=True)
 class TranslationResult:
     text: str

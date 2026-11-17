@@ -168,6 +168,17 @@ p50 111 ms, p95 138 ms. Modelin diskten ilk yüklenmesi ~40 sn sürer (uygulama 
 Ollama adresi `127.0.0.1` olmalı: `localhost` ile Windows önce IPv6 dener ve istek başına ~260 ms kaybedilir.
 4B modelin çevirisi resmî ("siz") ve yer yer hatalıdır, küfürü yumuşatır; kalite için bulut katmanı gerekir.
 
+**Gerçek Gemini ile (`gemini-3.5-flash-lite`, ücretsiz katman, thinking MINIMAL):** tek başına çeviri p50 644 ms
+(ilk token p50 549 ms, p95 867 ms). Yarış modunda (Gemini ‖ Ollama) replay: yeni satır ilk tam çeviri p50 430–454 ms,
+p95 527–534 ms (yerelden gelir), ardından 13 satırın 10'u bulut sonucuyla değişti. Kalan 3 istekte Gemini'nin ilk
+parçası 2.4–7.6 sn gecikti (sunucu tarafı; ilk parça geldikten sonra akış ~50 ms'de bitiyor) ve zaman aşımına
+uğradı; o satırlar yerel çeviriyle kaldı.
+
+**Ücretsiz katman kotası: model başına 15 istek/dk.** Aşılırsa API `429` döner. Bu yüzden istemci tarafında
+`requests_per_minute = 14` sınırı var: sınıra gelince bulut atlanır ve satır yerelden çevrilir; yine de `429`
+gelirse bulut, API'nin bildirdiği süre kadar devre dışı kalır. Yoğun diyalogda (dakikada 15'ten fazla yeni satır)
+satırların bir kısmı yerel kalitede kalır. Ücretli katmana geçersen `requests_per_minute = 0` yap.
+
 Yeni satır gecikmesinin çeviri dışı payı ≈ 130–145 ms'dir (bunun ~100 ms'si test videosundaki fade-in). Yani
 p50 < 600 ms hedefi için çeviri katmanına ≈ 450 ms kalıyor. 2 saatlik kesintisiz bellek testi ve gerçek
 Remote Play penceresinde uçtan uca ölçüm **yapılmadı**.
@@ -206,8 +217,9 @@ Remote Play penceresinde uçtan uca ölçüm **yapılmadı**.
 
 ## Bilinen sorunlar / sınırlar
 
-- **Gemini bu makinede canlı ölçülemedi** (`GEMINI_API_KEY` tanımlı değil); Ollama ölçüldü (yukarıda).
-  Gemini istek yolu (hata/zaman aşımı/iptal dahil) sahte anahtar ve sahte sağlayıcılarla doğrulandı; gerçek p50/p95
+- **Gemini tek başına p50 < 600 ms hedefini tutturmuyor** (p50 644 ms) ve ücretsiz katmanda ara sıra saniyelerce
+  takılıyor; hedef, yarış modunda yerel modelin önce gelmesi sayesinde tutuyor. `cloud_first` modunda gecikme
+  belirgin artar. Ölçümler sentetik videoyla alındı; kendi kaydınla gerçek p50/p95
   için `tools/bench_translate.py` ve `tools/replay_test.py` çalıştırılmalı. `gemini-3.5-flash-lite` model adı
   da bu yüzden doğrulanmadı — hata verirse `[translate.gemini] model` değerini değiştir.
 - **OCR doğruluğu sentetik videoda ölçüldü** (temiz beyaz + siyah konturlu yazı, 1080p ve 720p). Gerçek Remote

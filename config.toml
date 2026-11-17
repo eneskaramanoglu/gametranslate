@@ -41,7 +41,8 @@ speculative = false        # true: ilk okumada çeviriyi önden başlat (~1 kare
 
 [translate]
 mode = "race"              # "race" (bulut ‖ yerel) | "cloud_first" | "local_only"
-cloud_timeout_ms = 1200
+cloud_timeout_ms = 1200         # cloud_first modunda: bu sürede gelmezse yerele düş
+race_cloud_timeout_ms = 2500    # yarış modunda: yerel zaten ekranda, buluta daha uzun süre tanı
 context_lines = 3
 breaker_failures = 2       # ardışık bulut hatası → devre açılır
 breaker_cooldown_s = 30
@@ -52,6 +53,7 @@ enabled = true
 model = "gemini-3.5-flash-lite"   # örn. "gemini-flash-lite-latest"
 temperature = 0.2
 thinking = "auto"          # auto | off | minimal | low | default
+requests_per_minute = 14   # ücretsiz katman sınırı 15/dk; aşılacaksa bulut atlanır. Ücretli katmanda 0 = sınırsız
 stream_partials = true     # akış sırasında kısmi çeviriyi göster
 
 [translate.ollama]

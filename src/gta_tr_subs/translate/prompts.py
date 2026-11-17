@@ -16,7 +16,9 @@ SYSTEM_PROMPT = """GTA 6 oyun altyazısını doğal, konuşma dilinde Türkçeye
 
 Kurallar:
 - Kısa ve okunabilir tut; altyazı uzunluğunu aşırı uzatma.
-- Argo, küfür ve ton korunsun: sansürleme, yumuşatma. Oyunun +18 tonuna sadık kal.
+- Ton birebir korunsun. Kaynakta küfür varsa (fuck, shit, bitch, asshole...) sansürlemeden, yumuşatmadan aynı
+  sertlikte çevir. Kaynakta küfür YOKSA çeviriye küfür EKLEME. "hell", "damn", "crap" gibi hafif ifadeleri
+  hafif karşıla (lan, be, kahretsin, ne halt); bunları ağır küfre çevirme.
 - Özel isimleri (kişi, yer, marka, araç, radyo istasyonu) çevirme, aynen bırak.
 - Verilen bağlam satırlarını çevirme; yalnızca zamir, hitap (sen/siz) ve ton tutarlılığı için kullan.
 - Çıktı tek satır olsun: tırnak, etiket ("TR:"), not veya alternatif ekleme.
