@@ -1,0 +1,26 @@
+# Çeviri sözlüğü — istediğin gibi düzenle; uygulama açılışında okunur.
+
+# Asla çevrilmeyecek özel isimler (kişi, yer, marka, araç, radyo istasyonu...)
+keep:
+  - Lucia
+  - Jason
+  - Vice City
+  - Leonida
+  - Leonida Keys
+  - Port Gellhorn
+  - Grassrivers
+  - Ambrosia
+  - Mount Kalaga
+  - Cal Hampton
+  - Boobie Ike
+  - Dre'Quan
+  - Real Dimez
+  - Raul Bautista
+  - Brian Heder
+  - Los Santos
+  - Liberty City
+
+# Sabit terim karşılıkları (İngilizce: Türkçe)
+terms:
+  wanted level: aranma seviyesi
+  safehouse: güvenli ev
