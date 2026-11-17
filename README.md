@@ -162,6 +162,12 @@ kendi payını ve yönlendirici davranışını gösterir, gerçek Gemini/Ollama
 | Overlay'in yakalamaya girmemesi | DXGI ekran yakalamasında ve WGC pencere yakalamasında overlay yok | çift çeviri yok |
 | Bellek (6 dk, 4x hız ≈ 24 dk içerik, 43 081 kare, 540 altyazı) | 683–694 MB bandında, belirgin artış yok | 2 saatte sızıntı yok |
 
+**Gerçek Ollama ile (`translategemma:4b`, RTX 3070, %100 GPU, ~2.9 GB; bulut yok):** tek başına çeviri ort
+168 ms (ilk token 51 ms, p95 243 ms); replay'de uçtan uca yeni satır p50 427 ms, p95 575 ms; cache isabeti
+p50 111 ms, p95 138 ms. Modelin diskten ilk yüklenmesi ~40 sn sürer (uygulama açılışında ısıtılır).
+Ollama adresi `127.0.0.1` olmalı: `localhost` ile Windows önce IPv6 dener ve istek başına ~260 ms kaybedilir.
+4B modelin çevirisi resmî ("siz") ve yer yer hatalıdır, küfürü yumuşatır; kalite için bulut katmanı gerekir.
+
 Yeni satır gecikmesinin çeviri dışı payı ≈ 130–145 ms'dir (bunun ~100 ms'si test videosundaki fade-in). Yani
 p50 < 600 ms hedefi için çeviri katmanına ≈ 450 ms kalıyor. 2 saatlik kesintisiz bellek testi ve gerçek
 Remote Play penceresinde uçtan uca ölçüm **yapılmadı**.
@@ -200,8 +206,8 @@ Remote Play penceresinde uçtan uca ölçüm **yapılmadı**.
 
 ## Bilinen sorunlar / sınırlar
 
-- **Gemini ve Ollama bu makinede canlı ölçülemedi** (`GEMINI_API_KEY` tanımlı değil, Ollama kurulu değil).
-  İstek yolları (hata/zaman aşımı/iptal dahil) sahte anahtar ve sahte sağlayıcılarla doğrulandı; gerçek p50/p95
+- **Gemini bu makinede canlı ölçülemedi** (`GEMINI_API_KEY` tanımlı değil); Ollama ölçüldü (yukarıda).
+  Gemini istek yolu (hata/zaman aşımı/iptal dahil) sahte anahtar ve sahte sağlayıcılarla doğrulandı; gerçek p50/p95
   için `tools/bench_translate.py` ve `tools/replay_test.py` çalıştırılmalı. `gemini-3.5-flash-lite` model adı
   da bu yüzden doğrulanmadı — hata verirse `[translate.gemini] model` değerini değiştir.
 - **OCR doğruluğu sentetik videoda ölçüldü** (temiz beyaz + siyah konturlu yazı, 1080p ve 720p). Gerçek Remote

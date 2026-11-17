@@ -56,7 +56,7 @@ stream_partials = true     # akış sırasında kısmi çeviriyi göster
 
 [translate.ollama]
 enabled = true
-url = "http://localhost:11434"
+url = "http://127.0.0.1:11434"   # "localhost" yazma: Windows önce IPv6 dener, istek başına ~260 ms kaybettirir
 model = "translategemma:4b"       # GPU bolsa "translategemma:12b"
 keep_alive = "2h"
 timeout_ms = 4000

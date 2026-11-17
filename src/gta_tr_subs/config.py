@@ -100,7 +100,7 @@ class GeminiConfig(BaseModel):
 
 class OllamaConfig(BaseModel):
     enabled: bool = True
-    url: str = "http://localhost:11434"
+    url: str = "http://127.0.0.1:11434"  # localhost → IPv6 denemesi istek başına ~260 ms ekliyor
     model: str = "translategemma:4b"
     keep_alive: str = "2h"
     timeout_ms: int = 4000

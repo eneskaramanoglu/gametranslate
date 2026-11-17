@@ -74,7 +74,8 @@ class OllamaTranslator:
             response.raise_for_status()
             # ilk token gecikmesini de ısıt
             self._ready = True
-            await self.translate("Hello.", [])
+            # modelin ilk çıkarımı (soğuk başlangıç) normal zaman aşımından uzun sürebilir
+            await self.translate("Hello.", [], _timeout=httpx.Timeout(120.0, connect=1.0))
             self._warned = False
             logger.info("Ollama hazır ({})", self.model)
         except (httpx.HTTPError, TranslationError) as exc:
@@ -89,7 +90,13 @@ class OllamaTranslator:
             {"role": "user", "content": build_user_prompt(text, context, self.glossary)},
         ]
 
-    async def translate(self, text: str, context: Context, on_partial: OnPartial | None = None) -> str:
+    async def translate(
+        self,
+        text: str,
+        context: Context,
+        on_partial: OnPartial | None = None,
+        _timeout: httpx.Timeout | None = None,
+    ) -> str:
         if not self.cfg.enabled:
             raise TranslationError("Ollama devre dışı")
         payload = {
@@ -101,7 +108,8 @@ class OllamaTranslator:
         }
         acc = ""
         try:
-            async with self._http().stream("POST", "/api/chat", json=payload) as response:
+            extra = {"timeout": _timeout} if _timeout is not None else {}
+            async with self._http().stream("POST", "/api/chat", json=payload, **extra) as response:
                 if response.status_code == 404:
                     self._mark_down(f"model '{self.model}' indirilmemiş")
                     raise TranslationError(f"Ollama: model '{self.model}' bulunamadı")
