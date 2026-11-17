@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_CONFIG_NAME = "config.toml"
+EXAMPLE_CONFIG_NAME = "config.example.toml"
 
 
 class Rect(BaseModel):
@@ -193,12 +194,21 @@ def find_config(explicit: str | os.PathLike[str] | None = None) -> Path:
     if cwd.exists():
         return cwd
     # depo kökü: src/gta_tr_subs/config.py → ../../..
-    repo = Path(__file__).resolve().parents[2] / DEFAULT_CONFIG_NAME
-    return repo if repo.exists() else cwd
+    root = Path(__file__).resolve().parents[2]
+    repo = root / DEFAULT_CONFIG_NAME
+    if repo.exists() or (root / EXAMPLE_CONFIG_NAME).exists():
+        return repo
+    return cwd
 
 
 def load_settings(path: str | os.PathLike[str] | None = None) -> Settings:
     cfg_path = find_config(path)
+    if not cfg_path.exists():
+        # İlk çalıştırma: depodaki örnekten kişisel config.toml oluştur (git'e girmez;
+        # pencere başlığı, ROI gibi çalışma anı değerleri buraya yazılır)
+        example = cfg_path.with_name(EXAMPLE_CONFIG_NAME)
+        if example.exists():
+            cfg_path.write_bytes(example.read_bytes())
     data: dict[str, Any] = {}
     if cfg_path.exists():
         try:

@@ -8,3 +8,4 @@ out/
 models/
 *.egg-info/
 .env
+config.toml

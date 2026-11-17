@@ -1,260 +1,277 @@
-# gta-tr-subs — GTA 6 anlık Türkçe altyazı overlay'i (PS5 → PC)
+# gta-tr-subs — PS5 oyunlarına anlık Türkçe altyazı
 
-PS5'te oynanan oyunun PC'de görünen penceresini (PS Remote Play, chiaki-ng veya capture kartı + OBS
-Projector) yakalar, İngilizce altyazıyı OCR ile okur, Türkçeye çevirir ve orijinal altyazının **tam üstüne**
-şeffaf bir overlay olarak bindirir. Windows 11, Python 3.12.
+PS5'te oynadığın oyunun İngilizce altyazısını PC ekranından okur, Türkçeye çevirir ve çeviriyi orijinal
+altyazının **tam üstüne** bindirir. GTA 6 için tasarlandı; İngilizce altyazısı olan her oyunda çalışır.
 
-```
-[WGC pencere yakalama, 30 fps]            capture/wgc.py  (yedek: monitor.py, test: video_file.py)
-   → [ROI kırp]                           config: [roi]
-   → [Değişim tespiti, her karede ~1 ms]  detect/change_detector.py
-   → (değiştiyse) [Ön işleme] → [OCR]     ocr/preprocess.py, windows_ocr.py | rapid_ocr.py
-   → [Stabilizasyon + dedupe]             stabilize.py
-   → [Yönlendirici: cache → (bulut ‖ yerel) → yedek]   translate/router.py
-   → [Overlay]                            overlay/window.py
-```
+Oyun görüntüsü PC'ye PS Remote Play, chiaki-ng ya da capture kartı + OBS ile gelir. Program o pencereyi
+yakalar, altyazı bölgesini OCR ile okur, çeviriyi şeffaf ve tıklamayı geçiren bir overlay'de gösterir.
+Windows 11 gerekir.
+
+- **Hızlı:** daha önce görülen satır ~85 ms'de, yeni satır ~430 ms'de ekranda (ölçümler aşağıda).
+- **İnternetsiz de çalışır:** yerel model (Ollama) her zaman hazırdır; bulut yanıt vermezse takılma olmaz.
+- **Sansürsüz, tona sadık:** küfür ve argo yumuşatılmaz, ama kaynakta olmayan küfür de eklenmez.
+- **Özel isimler korunur:** `glossary.yaml` içindeki isimler (Lucia, Jason, Vice City…) çevrilmez.
+
+## Hızlı başlangıç
+
+Kurulum bittikten sonra (aşağıda) proje klasöründe:
+
+| Ne için | Çift tıkla | veya terminalde |
+|---|---|---|
+| Denemek, ayarlamak, gecikmeyi görmek | `test-paneli.bat` | `.venv\Scripts\gta-tr-subs.exe --ui` |
+| Oynarken kullanmak (yalnızca overlay) | `baslat.bat` | `.venv\Scripts\gta-tr-subs.exe` |
+
+İlk kez deniyorsan test paneliyle başla.
 
 ## Kurulum
 
-1. **Python + uv** — [uv](https://docs.astral.sh/uv/) kur (`winget install astral-sh.uv` veya `pip install uv`), sonra depo kökünde:
+1. **Python ortamı.** [uv](https://docs.astral.sh/uv/) kur (`python -m pip install uv`), sonra proje klasöründe:
 
    ```bash
-   uv sync
+   python -m uv sync
    ```
 
-   Opsiyonel ekler: `uv sync --extra rapid` (yedek OCR motoru RapidOCR), `uv sync --extra ct2` (Katman 3).
-   Geliştirme/test araçları (pytest, pillow) varsayılan olarak kurulur.
+   Bu, Python 3.12'yi ve tüm bağımlılıkları `.venv` klasörüne kurar.
 
-2. **Windows İngilizce OCR dil paketi** — birincil OCR motoru (Windows.Media.Ocr) için gerekir.
-   Yönetici PowerShell:
+2. **Windows İngilizce OCR paketi.** Yönetici PowerShell'de:
 
    ```powershell
    Add-WindowsCapability -Online -Name "Language.OCR~~~en-US~0.0.1.0"
    ```
 
-   (veya Ayarlar → Saat ve dil → Dil ve bölge → Dil ekle → English (United States).) Paket yoksa uygulama
-   açık bir hata mesajı gösterir; RapidOCR kuruluysa otomatik ona düşer.
+   (Ya da Ayarlar → Saat ve dil → Dil ve bölge → Dil ekle → English (United States).) Paket yoksa program
+   açılışta ne yapman gerektiğini söyleyen bir hata gösterir.
 
-3. **Gemini API anahtarı (bulut katmanı)** — yalnızca `GEMINI_API_KEY` ortam değişkeninden okunur, hiçbir
-   yere yazılmaz/loglanmaz. Kalıcı tanımlamak için (sonra terminali yeniden aç):
-
-   ```powershell
-   setx GEMINI_API_KEY "anahtarın"
-   ```
-
-   Anahtar yoksa uygulama yalnızca yerel katmanlarla çalışır.
-
-4. **Ollama + TranslateGemma (yerel/offline katman)** — [ollama.com](https://ollama.com) kur, sonra:
+3. **Ollama ve yerel model (ücretsiz, internetsiz çalışır).** [ollama.com](https://ollama.com)'dan Ollama'yı kur, sonra:
 
    ```bash
    ollama pull translategemma:4b
    ```
 
-   Uygulama açılışta modeli ısıtır (`keep_alive = 2h`). **VRAM:** `translategemma:4b` ≈ 4–5 GB,
-   `translategemma:12b` ≈ 9–10 GB. GPU, Remote Play/chiaki video çözme ile paylaşıldığı için varsayılan 4B'dir;
-   8 GB kartlarda 12B önerilmez. Ollama kapalıysa/model yoksa katman atlanır ve 20 sn'de bir yeniden yoklanır.
+   Model ~3.3 GB iner, ekran kartında ~3 GB yer tutar. Program açılışta modeli yükler; diskten ilk yükleme
+   ~40 sn sürebilir.
 
-5. **(Opsiyonel) Katman 3 — CTranslate2 + opus-mt** — Ollama da yoksa devreye giren CPU yedeği (~50–100 ms):
+4. **Gemini API anahtarı (opsiyonel ama önerilir: çeviri kalitesi belirgin daha iyi).**
+   [aistudio.google.com/apikey](https://aistudio.google.com/apikey) adresinden anahtar al ve kaydet:
 
-   ```bash
-   uv sync --extra ct2
-   uvx --from ctranslate2 --with transformers --with torch --with sentencepiece ct2-transformers-converter --model Helsinki-NLP/opus-mt-tc-big-en-tr --output_dir models/opus-mt-tc-big-en-tr-ct2 --quantization int8 --copy_files source.spm target.spm
+   ```powershell
+   setx GEMINI_API_KEY "anahtarın"
    ```
 
-   Sonra `config.toml` → `[translate.ct2] enabled = true`.
+   Ardından açık terminalleri kapatıp yeniden aç. Anahtar yalnızca bu ortam değişkeninden okunur; hiçbir
+   dosyaya ya da loga yazılmaz. Anahtar yoksa program yalnızca yerel modelle çalışır.
 
-### PS5 / görüntü kaynağı ayarları
+   > Ücretsiz katmanda sınır **dakikada 15 istek**tir. Program buna göre ayarlıdır: sınıra yaklaşınca o satırı
+   > yerel modelle çevirir. Ücretli katmana geçersen `config.toml` içinde `requests_per_minute = 0` yap.
 
-- **PS Remote Play / chiaki-ng (birincil):** Pencereli veya **kenarlıksız tam ekran** çalıştır. *Exclusive
-  fullscreen* overlay'i gizleyebilir. 1080p akış önerilir (720p de çalışır). Pencereyi simge durumuna
-  küçültme — WGC kare vermeyi keser (başka pencerenin arkasında kalması sorun değil).
-- **Capture kartı + OBS:** PS5'te **Ayarlar → Sistem → HDMI → HDCP'yi Etkinleştir**'i kapat (açıkken kart siyah
-  görüntü verir). OBS'te kaynağa sağ tık → *Windowed Projector* (veya Fullscreen Projector) aç ve onu seç.
-- Oyunda altyazıları aç; mümkünse altyazı arka planı kapalı, standart beyaz yazı.
-- HDR akışında beyazlar soluk gelirse `[detect] bright_threshold` değerini düşür (örn. 140).
+## PS5'i bağlama
 
-## Çalıştırma
+**PS Remote Play ya da chiaki-ng (ek donanım gerekmez)**
 
-```bash
-uv run gta-tr-subs
-```
+1. PS5'te **Ayarlar → Sistem → Uzaktan Oynama → Uzaktan Oynamayı Etkinleştir**.
+2. PC'de [PS Remote Play](https://remoteplay.dl.playstation.net/remoteplay/) ya da
+   [chiaki-ng](https://github.com/streetpea/chiaki-ng) ile PS5'e bağlan. Çözünürlüğü 1080p yap.
+3. Mümkünse PS5'i ve PC'yi kabloyla (Ethernet) bağla; Wi-Fi'da oyun gecikmesi hem yüksek hem dalgalı olur.
+4. Pencereyi **simge durumuna küçültme** (görüntü yakalanamaz). Başka pencerenin arkasında kalması sorun değil.
+5. Pencereli ya da kenarlıksız tam ekran kullan; *exclusive fullscreen* overlay'i gizleyebilir.
 
-İlk açılışta: (1) pencere listesinden hedefi seç (★ = otomatik öneri; seçim `config.toml`'a kaydedilir),
-(2) donmuş kare üzerinde fareyle altyazı bölgesini çiz (pencereye **oransal** kaydedilir). Sonra overlay çalışır.
+**Capture kartı + OBS**
+
+1. PS5'te **Ayarlar → Sistem → HDMI → HDCP'yi Etkinleştir**'i kapat (açıkken kart siyah görüntü verir).
+2. OBS'te kaynağa sağ tıkla → *Windowed Projector*; programda o pencereyi seç.
+
+Oyunda altyazıları açmayı unutma. Standart beyaz yazı en iyi sonucu verir.
+
+## Kullanım
+
+### Test paneli
+
+`test-paneli.bat` → tek pencerede her şeyi görürsün.
+
+1. **Kaynak** listesinden oyunun penceresini seç (★ = otomatik öneri). Oyun açık değilse "Sentetik test
+   videosu"na bas; program kendi ürettiği altyazılı videoyla çalışır.
+2. **Başlat**'a bas. Sol üstte görüntü akmalı.
+3. Ekranda bir altyazı varken **Altyazı bölgesini seç…**'e bas ve altyazının çıktığı alanı fareyle çiz.
+   2–3 satırlık altyazı sığacak kadar olsun; gereğinden büyük seçme.
+4. İzle:
+
+| Bölüm | Ne gösterir |
+|---|---|
+| Önizleme | Yakalanan kare ve yeşil altyazı bölgesi çerçevesi |
+| Alttaki şerit | OCR'a giden maske; altyazı harfleri **yeşil** görünmeli |
+| Şu anki satır | Okunan İngilizce, Türkçe çeviri, katman (cache / bulut / yerel) ve gecikme |
+| Geçmiş | Her satırın kararlı olma süresi, ilk çevirinin katmanı ve gecikmesi (yeşil = hedefin altında), bulut sonradan yerine geçtiyse onun gecikmesi; altta p50/p95; CSV'ye kaydedilir |
+| İstatistik | fps, OCR ve çeviri süreleri, devre kesici, bulut hata / zaman aşımı / kota sayaçları |
+| Elle çeviri testi | Yazdığın İngilizce satırı her katmandan geçirir, sonucu ve süresini gösterir |
+
+"Çeviri" kutusundaki ayarlar çalışırken değişir: mod, overlay aç/kapa, İngilizceyi göster, internet kesintisi
+simülasyonu. **"Sahte çevirmen" çeviri yapmaz**, İngilizceyi geri verir; yalnızca ağ ve model olmadan hız
+ölçmek içindir.
+
+### Overlay (oynarken)
+
+`baslat.bat` → ilk açılışta pencereyi ve altyazı bölgesini sorar, sonra yalnızca overlay çalışır.
 
 | Kısayol | İşlev |
 |---|---|
-| `F8` | Çeviriyi/overlay'i aç-kapa (kapalıyken OCR ve çeviri de durur) |
-| `F9` | Altyazı bölgesini yeniden kalibre et (opsiyonel konuşmacı bölgesi dahil) |
-| `F10` | Orijinal İngilizceyi küçük puntoyla göster/gizle |
+| `F8` | Çeviriyi aç / kapa (kapalıyken OCR ve çeviri de durur) |
+| `F9` | Altyazı bölgesini yeniden seç |
+| `F10` | Orijinal İngilizceyi küçük puntoyla göster / gizle |
 | `F11` | Çeviri modu: yarış → bulut → yerel |
-| `F12` | Debug paneli: canlı ROI önizlemesi, fps, OCR/çeviri süreleri, aktif katman, devre kesici |
+| `F12` | Debug paneli: canlı önizleme, fps, süreler, aktif katman |
 
-Çıkış: sistem tepsisindeki **TR** simgesi → Çıkış, debug panelindeki düğme veya konsolda `Ctrl+C`.
-Kısayollar `config.toml` → `[hotkeys]` altından değiştirilebilir (tuşlar oyuna/uygulamaya da iletilir; örn.
-chiaki-ng'de `F11` tam ekran geçişiyse birini değiştir).
+Çıkış: sistem tepsisindeki **TR** simgesi → Çıkış. Kısayollar `config.toml` → `[hotkeys]` altından değişir.
+Tuşlar oyuna/uygulamaya da iletilir; chiaki-ng'de `F11` tam ekran geçişiyse birini değiştir.
 
-Diğer seçenekler:
+Çeviri kutusunun köşesindeki küçük etiket çevirinin nereden geldiğini gösterir: `cache`, `bulut`, `yerel`.
 
-```bash
-uv run gta-tr-subs --pick-window          # pencere seçimini zorla
-uv run gta-tr-subs --console              # overlay yok; kararlı altyazı + çeviriyi konsola yaz
-uv run gta-tr-subs --source video.mp4     # kare kaynağı olarak video (overlay bir önizleme penceresini takip eder)
-uv run gta-tr-subs --simulate-offline     # bulutu hataya zorla (yerele geçişi dene)
-uv run gta-tr-subs --list-windows
-```
-
-## Test paneli
+### Komut satırı seçenekleri
 
 ```bash
-uv run gta-tr-subs --ui
+.venv\Scripts\gta-tr-subs.exe --ui                 # test paneli
+.venv\Scripts\gta-tr-subs.exe --pick-window        # pencere seçimini yeniden sor
+.venv\Scripts\gta-tr-subs.exe --calibrate          # açılışta altyazı bölgesini yeniden seç
+.venv\Scripts\gta-tr-subs.exe --mode local_only    # race | cloud_first | local_only
+.venv\Scripts\gta-tr-subs.exe --console            # overlay yok; okunan satırı ve çeviriyi konsola yaz
+.venv\Scripts\gta-tr-subs.exe --source video.mp4   # kare kaynağı olarak video
+.venv\Scripts\gta-tr-subs.exe --list-windows       # yakalanabilir pencereleri listele
 ```
 
-Tek pencerede kaynağı seçip pipeline'ı başlatır/durdurur ve olan biteni canlı gösterir:
+## Ayarlar
 
-- **Kaynak:** açık pencerelerden biri (★ = otomatik öneri), bir video dosyası veya "Sentetik test videosu"
-  (bilinen 16 satırlık altyazı; yoksa otomatik üretilir). Video kaynağında overlay paneldeki önizlemenin üstüne biner.
-- **Önizleme:** yakalanan kare + altyazı bölgesi çerçevesi; altında OCR'a giden maske (yeşil).
-- **Şu anki satır:** okunan İngilizce, Türkçe çeviri, katman ve gecikme dökümü.
-- **Geçmiş:** her satır için kararlı olma süresi, ilk çevirinin katmanı ve gecikmesi (yeşil = hedefin altında),
-  bulut yükseltmesi geldiyse onun gecikmesi; altta p50/p95 özeti; CSV'ye kaydedilebilir.
-- **İstatistik:** fps, OCR/çeviri süreleri, devre kesici, bulut hata/zaman aşımı/kota sayaçları.
-- **Çeviri ayarları (canlı):** mod, overlay aç/kapa, İngilizceyi göster, internet kesintisi simülasyonu.
-  "Sahte çevirmen" ağ/model olmadan pipeline'ı dener (bir sonraki Başlat'ta geçerli olur).
-- **Elle çeviri testi:** yazdığın İngilizce satırı yönlendiriciden geçirir, her katmanın sonucunu ve süresini gösterir.
+| Dosya | İçerik |
+|---|---|
+| `config.toml` | Kişisel ayarların. İlk çalıştırmada `config.example.toml`'dan oluşturulur; seçtiğin pencere ve altyazı bölgesi buraya kaydedilir. Git'e girmez. Her alan yorumla açıklanmıştır. |
+| `glossary.yaml` | `keep:` çevrilmeyecek özel isimler, `terms:` sabit terim karşılıkları. İstediğin gibi düzenle. |
+| `translations.db` | Kalıcı çeviri önbelleği. Silersen sıfırlanır. |
 
-`--ui --source video.mp4` verilirse o videoyla kendiliğinden başlar. Global kısayollar (F8–F12) panelde yoktur.
+En sık dokunulan ayarlar:
 
-## Yapılandırma
+| Ayar | Ne zaman değiştirilir |
+|---|---|
+| `[translate] mode` | `race` (varsayılan: bulut ve yerel yarışır), `cloud_first`, `local_only` |
+| `[translate.gemini] requests_per_minute` | Ücretli Gemini katmanında `0` yap |
+| `[translate.ollama] model` | Ekran kartın 12 GB+ ise `translategemma:12b` (daha kaliteli, daha yavaş) |
+| `[detect] bright_threshold` | Altyazı soluksa (HDR akışı) düşür, örn. `140` |
+| `[overlay] opacity`, `font_family` | Kutunun opaklığı ve yazı tipi |
 
-- `config.toml` — pencere başlığı, ROI, OCR motoru, eşikler, modeller, timeout'lar, mod, overlay görünümü,
-  kısayollar. Her alan dosyada yorumla açıklanmıştır.
-- `glossary.yaml` — `keep:` çevrilmeyecek özel isimler, `terms:` sabit terim karşılıkları. Bulut prompt'una
-  eklenir; tüm katmanların çıktısında çeviri sonrası isim kontrolü yapılır ("Lusiya'yı" → "Lucia'yı").
-- `translations.db` — kalıcı çeviri önbelleği (SQLite). Silersen sıfırlanır.
+## Çeviri nasıl çalışır
 
-Çeviri davranışı:
+1. **Önbellek.** Satır daha önce çevrildiyse anında gösterilir. Oynadıkça dolar; tekrar eden replikler anlık olur.
+2. **Yarış (varsayılan).** Gemini ve yerel model aynı anda başlar, ilk gelen gösterilir. Gemini sonra gelirse ve
+   altyazı hâlâ ekrandaysa çeviri onunkiyle değişir ve önbelleğe o yazılır.
+3. **Bulut sorunluysa.** İki ardışık hata/zaman aşımında bulut 30 sn atlanır, sonra tek istekle yoklanır. Kota
+   dolarsa (429) API'nin bildirdiği süre kadar beklenir. Bu sürede çeviri yerel modelden gelir.
+4. **Bağlam.** Son 3 satır Gemini'ye bağlam olarak gider; hitap (sen/siz) ve zamirler tutarlı kalır.
 
-- **Cache** her zaman önce. Yerel katmandan gelmiş bir kayıt gösterilir, bulut erişilebilirse arkadan sessizce
-  bulut sonucuyla yükseltilir.
-- **Yarış modu (varsayılan):** bulut ve yerel paralel başlar, ilk gelen gösterilir; bulut sonra gelirse ve altyazı
-  hâlâ ekrandaysa yerine geçer ve cache'e yazılır.
-- **Devre kesici:** bulut 2 ardışık hata/zaman aşımı (1200 ms) verirse 30 sn atlanır, sonra tek deneme isteğiyle
-  yoklanır. Ağ yokken yerel zaten paralel çalıştığı için takılma olmaz.
-- Son 3 satır (EN+TR) bağlam olarak buluta gönderilir (hitap/zamir tutarlılığı). TranslateGemma kendi model
-  kartındaki prompt formatıyla çağrılır.
+Yerel model hızlıdır ama çevirisi daha zayıftır: resmî ("siz") konuşur, küfürü yumuşatır, ara sıra hata yapar.
+Kalite için Gemini anahtarı önerilir.
 
-## Test (oyun olmadan)
+## Sorun giderme
 
-```bash
-uv run pytest                                              # birim testleri
-uv run python tools/make_test_video.py                     # out/synthetic.mp4 + out/ground_truth.srt
-uv run python tools/replay_test.py out/synthetic.mp4 --ground-truth out/ground_truth.srt
-uv run python tools/replay_test.py out/synthetic.mp4 --simulate-offline
-uv run python tools/replay_test.py kayit.mp4 --fake-translate   # ağ/model olmadan pipeline gecikmesi
-uv run python tools/bench_ocr.py --errors                  # iki OCR motoru: süre + doğruluk
-uv run python tools/bench_translate.py                     # katman başına TTFT/toplam süre
-uv run python tools/bench_translate.py --router            # cache + yarış uçtan uca
-uv run python tools/soak_test.py out/synthetic.mp4 --minutes 10   # bellek eğilimi
-```
+| Belirti | Çözüm |
+|---|---|
+| `No module named uv` | `uv`'ye gerek yok: `baslat.bat` / `test-paneli.bat` kullan ya da `.venv\Scripts\gta-tr-subs.exe` çalıştır. |
+| "Windows OCR için 'en-US' dil paketi kurulu değil" | Kurulum 2. adımdaki komutu yönetici PowerShell'de çalıştır. |
+| Çeviri hep `yerel` geliyor | Anahtar görünmüyor olabilir: `setx`'ten sonra terminali yeniden aç. İstatistik sekmesinde "429" ya da "kota nedeniyle atlanan" artıyorsa ücretsiz kotaya takılıyorsun. |
+| Türkçe yerine İngilizce görünüyor | Test panelinde "Sahte çevirmen" işaretli; kaldırıp yeniden başlat. |
+| Önizleme siyah | Pencere simge durumunda olmasın. Yine siyahsa `config.toml` → `[capture] backend = "monitor"` dene ya da chiaki-ng kullan. |
+| Altyazı okunmuyor | Alttaki şeritte harfler yeşil mi? Değilse `bright_threshold`'u düşür. Her yer yeşilse yükselt ya da `[detect] require_outline = true` yap. Bölgeyi daha dar seç. |
+| Çeviri geç geliyor | İstatistik sekmesinde hangi aşamanın uzun sürdüğüne bak. İlk dakikada yerel model ısınıyor olabilir. |
+| Overlay görünmüyor | Oyun penceresi *exclusive fullscreen* olmasın. `F8` ile kapatılmış olabilir. |
+| Overlay ekran kaydında/yayında görünmüyor | Bilerek böyle: overlay kendi çevirisini okumasın diye tüm ekran yakalamalarından gizlenir. |
 
-`replay_test.py` her altyazı için CSV yazar (zaman, OCR metni, kararlı olma süresi, katman, çeviri süresi, toplam
-gecikme) ve sonunda p50/p95 gecikme, OCR karakter doğruluğu (`--ground-truth x.srt` verilirse), cache isabet
-oranı ve "kaybolma → gizleme" süresini basar. Gerçek ölçüm için kendi oyun kaydını (İngilizce altyazılı GTA V/VI
-videosu) ve elle hazırlanmış bir `.srt` kullan.
+Ayrıntılı kayıtlar `logs/gta-tr-subs.log` dosyasındadır.
 
-## Ölçümler (geliştirme makinesi: Windows 11, RTX 3070, sentetik 1080p/30 fps video)
+## Performans
 
-Çeviri sağlayıcıları bu ölçümlerde **sahte**dir (bulut 350 ms, yerel 120 ms sabit gecikme); yani tablo pipeline'ın
-kendi payını ve yönlendirici davranışını gösterir, gerçek Gemini/Ollama sürelerini değil.
+Geliştirme makinesi: Windows 11, RTX 3070. Sentetik 1080p/30 fps video, gerçek Gemini (ücretsiz katman) ve
+gerçek Ollama (`translategemma:4b`).
 
 | Ölçüm | Sonuç | Hedef |
 |---|---|---|
-| Değişim tespiti (her kare) | p50 1.3 ms, p95 1.5 ms | — |
-| Windows OCR (ön işleme dahil) | p50 5.7 ms, p95 11.3 ms; `bench_ocr`: ort 8.7 ms | — |
-| RapidOCR (CPU) | ort 530 ms, p95 1077 ms | yalnızca yedek |
-| OCR karakter doğruluğu — Windows | %100 (replay 16 satır; `bench_ocr` 52 görüntü, 1080p+720p) | ≥ %97 |
-| OCR karakter doğruluğu — RapidOCR | %99.1 | ≥ %97 |
-| Belirme → "kararlı" (4 karelik fade dahil) | p50 128 ms, p95 143 ms | — |
-| Toplam gecikme, cache isabeti | p50 84 ms, p95 124 ms | < 150 ms |
-| Toplam gecikme, yeni satır (yerel 120 ms ile) | p50 261 ms, p95 267 ms | p50 < 600, p95 < 1200 |
-| Altyazı kayboldu → overlay gizlendi | p50 243 ms, p95 269 ms, max 277 ms | ≤ 300 ms |
-| Offline simülasyonu | 16/16 satır yerelden, takılma yok; 2 hatada devre açıldı, 30 sn sonra tek yoklama | 2 sn içinde geçiş |
-| Overlay'in yakalamaya girmemesi | DXGI ekran yakalamasında ve WGC pencere yakalamasında overlay yok | çift çeviri yok |
-| Bellek (6 dk, 4x hız ≈ 24 dk içerik, 43 081 kare, 540 altyazı) | 683–694 MB bandında, belirgin artış yok | 2 saatte sızıntı yok |
+| Yeni satır, ilk tam çeviri | p50 430–454 ms, p95 527–534 ms | p50 < 600, p95 < 1200 |
+| Önbellekteki satır | p50 84 ms, p95 136 ms | < 150 ms |
+| Altyazı kayboldu → overlay gizlendi | p50 243 ms, en fazla 277 ms | ≤ 300 ms |
+| OCR karakter doğruluğu (Windows OCR) | %100 (1080p ve 720p, 52 görüntü) | ≥ %97 |
+| OCR süresi | ortalama 8.7 ms | — |
+| Yerel model, tek başına | ortalama 168 ms (ilk kelime 51 ms) | — |
+| Gemini, tek başına | p50 644 ms, p95 867 ms | — |
+| Bellek (6 dk, 4x hız ≈ 24 dk içerik) | 683–694 MB bandında, artış yok | sızıntı yok |
 
-**Gerçek Ollama ile (`translategemma:4b`, RTX 3070, %100 GPU, ~2.9 GB; bulut yok):** tek başına çeviri ort
-168 ms (ilk token 51 ms, p95 243 ms); replay'de uçtan uca yeni satır p50 427 ms, p95 575 ms; cache isabeti
-p50 111 ms, p95 138 ms. Modelin diskten ilk yüklenmesi ~40 sn sürer (uygulama açılışında ısıtılır).
-Ollama adresi `127.0.0.1` olmalı: `localhost` ile Windows önce IPv6 dener ve istek başına ~260 ms kaybedilir.
-4B modelin çevirisi resmî ("siz") ve yer yer hatalıdır, küfürü yumuşatır; kalite için bulut katmanı gerekir.
+Bu sayıları okurken:
 
-**Gerçek Gemini ile (`gemini-3.5-flash-lite`, ücretsiz katman, thinking MINIMAL):** tek başına çeviri p50 644 ms
-(ilk token p50 549 ms, p95 867 ms). Yarış modunda (Gemini ‖ Ollama) replay: yeni satır ilk tam çeviri p50 430–454 ms,
-p95 527–534 ms (yerelden gelir), ardından 13 satırın 10'u bulut sonucuyla değişti. Kalan 3 istekte Gemini'nin ilk
-parçası 2.4–7.6 sn gecikti (sunucu tarafı; ilk parça geldikten sonra akış ~50 ms'de bitiyor) ve zaman aşımına
-uğradı; o satırlar yerel çeviriyle kaldı.
+- Yeni satır hedefi Gemini sayesinde değil, yerel modelin önce gelmesi sayesinde tutuyor. Gemini tek başına
+  hedefin üstünde; ücretsiz katmanda ara sıra ilk yanıtı saniyelerce geciktiriyor.
+- Gecikmenin ~100 ms'si oyunun kendi altyazı belirme animasyonudur; kısaltılamaz.
+- OCR doğruluğu temiz, sentetik yazıyla ölçüldü. Gerçek Remote Play akışında sıkıştırma sonucu düşürebilir.
+- Gerçek PS Remote Play penceresiyle 6 dakikalık bir oturumda 45 satır çevrildi (9 bulut, 36 yerel). O oturumda
+  gecikme ve doğruluk ölçülmedi.
+- 2 saatlik kesintisiz bellek testi yapılmadı.
 
-**Ücretsiz katman kotası: model başına 15 istek/dk.** Aşılırsa API `429` döner. Bu yüzden istemci tarafında
-`requests_per_minute = 14` sınırı var: sınıra gelince bulut atlanır ve satır yerelden çevrilir; yine de `429`
-gelirse bulut, API'nin bildirdiği süre kadar devre dışı kalır. Yoğun diyalogda (dakikada 15'ten fazla yeni satır)
-satırların bir kısmı yerel kalitede kalır. Ücretli katmana geçersen `requests_per_minute = 0` yap.
+Kendi ölçümün için test panelindeki Geçmiş sekmesini ya da aşağıdaki araçları kullan.
 
-Yeni satır gecikmesinin çeviri dışı payı ≈ 130–145 ms'dir (bunun ~100 ms'si test videosundaki fade-in). Yani
-p50 < 600 ms hedefi için çeviri katmanına ≈ 450 ms kalıyor. 2 saatlik kesintisiz bellek testi ve gerçek
-Remote Play penceresinde uçtan uca ölçüm **yapılmadı**.
+## Bilinen sınırlar
 
-## Varsayımlar
+- **Çok parlak arka plan** (altyazının tam arkasında beyaz gökyüzü) okumayı bozabilir.
+- **Çok benzer ardışık satırlar** (uzun bir cümlede tek kısa kelime farkı) aynı sayılıp yeniden çevrilmeyebilir.
+- **Harf harf yazılan altyazılar** yazım bitince çevrilir.
+- **Ücretsiz Gemini kotası** yoğun diyalogda yetmez; satırların bir kısmı yerel kalitede kalır.
+- **Ekran ölçeği:** overlay konumu %100 ölçekte denendi; %125/%150'de kayma olabilir.
+- Overlay, oyun penceresi başka bir pencerenin arkasındayken de en üstte görünür; `F8` ile kapat.
+- RapidOCR yedeği CPU'da yavaştır (~0.5 sn); CTranslate2 yedeği kodlandı ama denenmedi.
 
-- **Dizin yapısı:** proje depo kökünde durur (ayrı bir `gta-tr-subs/` alt klasörü yok). Spec'teki ağaca ek olarak
-  `pipeline.py` (çekirdek döngü), `app.py` (Qt denetleyici), `hotkeys.py`, `config.py`, `capture/picker.py`,
-  `capture/base.py`, `ocr/base.py`, `ocr/text.py`, `translate/base.py`, `translate/fake.py` ve
-  `tools/{synth,make_test_video,soak_test}.py` eklendi.
-- **Monitör yakalama yedeği:** `dxcam`/`bettercam` yerine `windows-capture` paketinin kendi DXGI Desktop
-  Duplication oturumu kullanıldı (aynı mekanizma, ek bağımlılık yok). `[capture] backend = "monitor"`.
-- **OCR ön işleme:** "2x büyüt + kontrast" yerine varsayılan olarak **parlak piksel maskesinden siyah-beyaz metin
-  görüntüsü** (`preprocess = "mask"`, 2x büyütülmüş) OCR'a veriliyor. Ölçümde Windows OCR doğruluğu gri
-  görüntüde %76–98 arasında oynarken maskede %99.5–100 çıktı. `preprocess = "gray"` eski davranıştır.
-- **"2 ardışık OCR" kuralı:** `fast_confirm = true` iken, OCR'lanan kareden sonraki karede maske değişmediyse
-  ikinci OCR çalıştırılmadan "ardışık görülme" sayılır (~1 kare kazanç). `false` yapınca birebir iki OCR beklenir.
-- **Gecikme tanımı:** altyazı maskesinin değiştiği ilk karenin elimize ulaştığı an → çevirinin overlay'e
-  gönderildiği an. Akışın kendi gecikmesi (Remote Play) ve Qt'nin çizimi (≤ 1 kare) dahil değildir.
-- **Spekülatif çeviri** (`speculative`) varsayılan kapalı: fade sırasındaki yarım okumalar için ~2 kat API
-  çağrısı yapıyor, kazancı `fast_confirm` ile ~1 kareye indi.
-- **Yeni satır kararlı olduğunda** çevirisi gelene dek eski Türkçe metin gizlenir (yanlış satırın üstünde
-  kalmasın); arada orijinal İngilizce görünür.
-- **Akış (streaming):** Gemini'den gelen kısmi metin, ekranda başka tam çeviri yokken anında gösterilir
-  (`stream_partials`). "Toplam gecikme" metrikleri ilk **tam** çeviriye göredir.
-- **Yerel sonuçlar da cache'e yazılır** (`cache_local_results`), ama "yerel" etiketiyle; bulut erişilebilir
-  olduğunda bir sonraki görülmede bulut sonucuyla yükseltilir. Bulut kaydı asla yerelle ezilmez.
-- **Gemini thinking:** `thinking = "auto"` → 3.x modellerde `thinking_level = MINIMAL`, 2.x'te
-  `thinking_budget = 0`. API ayarı reddederse otomatik olarak bir alt seçeneğe düşülür.
-- **Gemini güvenlik filtreleri** `BLOCK_NONE`: +18 oyun diyaloğundaki küfür/argo çevirisinin boş dönmemesi için.
-- **TranslateGemma** model kartındaki tek kullanıcı mesajı formatıyla çağrılır; bağlam ve sözlük prompt'a
-  eklenmez (format bozulmasın), sözlük çeviri **sonrası** uygulanır.
-- **F8** yalnızca overlay'i gizlemez, pipeline'ı da duraklatır (boşa OCR/API çağrısı olmasın).
-- **Konuşmacı ROI'si** (opsiyonel) yalnızca satır kararlı olduğunda bir kez okunur ve çevrilmeden başlıkta gösterilir.
-- **Debug paneli ve overlay** `WDA_EXCLUDEFROMCAPTURE` ile işaretlidir: hiçbir ekran kaydında/yayınında görünmezler.
+## Geliştirme
 
-## Bilinen sorunlar / sınırlar
+```
+[Pencere yakalama, 30 fps]             capture/wgc.py   (yedek: monitor.py, test: video_file.py)
+   → [Altyazı bölgesini kırp]          config: [roi]
+   → [Değişim tespiti, ~1 ms]          detect/change_detector.py
+   → (değiştiyse) [Ön işleme] → [OCR]  ocr/preprocess.py, windows_ocr.py | rapid_ocr.py
+   → [Stabilizasyon + tekrar önleme]   stabilize.py
+   → [Çeviri yönlendirici]             translate/router.py  (cache, gemini, ollama_local, ct2_fallback)
+   → [Overlay]                         overlay/window.py
+```
 
-- **Gemini tek başına p50 < 600 ms hedefini tutturmuyor** (p50 644 ms) ve ücretsiz katmanda ara sıra saniyelerce
-  takılıyor; hedef, yarış modunda yerel modelin önce gelmesi sayesinde tutuyor. `cloud_first` modunda gecikme
-  belirgin artar. Ölçümler sentetik videoyla alındı; kendi kaydınla gerçek p50/p95
-  için `tools/bench_translate.py` ve `tools/replay_test.py` çalıştırılmalı. `gemini-3.5-flash-lite` model adı
-  da bu yüzden doğrulanmadı — hata verirse `[translate.gemini] model` değerini değiştir.
-- **OCR doğruluğu sentetik videoda ölçüldü** (temiz beyaz + siyah konturlu yazı, 1080p ve 720p). Gerçek Remote
-  Play akışında sıkıştırma artefaktları sonucu düşürebilir; kendi kaydınla `replay_test.py --ground-truth` çalıştır.
-- **Çok parlak arka plan** (altyazının tam arkasında beyaz gökyüzü/far) maskeyi kirletir. Deneyebileceklerin:
-  `[detect] require_outline = true`, `bright_threshold` yükseltmek veya `[ocr] preprocess = "gray"`.
-- **Çok benzer ardışık satırlar** (benzerlik ≥ %92; örn. uzun bir cümlede tek kısa kelime farkı) aynı satır
-  sayılıp yeniden çevrilmeyebilir. `[stabilize] similarity` yükseltilebilir.
-- **Karakter karakter yazılan altyazılar:** yazım durana kadar "kararlı" olmaz; çeviri cümle tamamlanınca gelir.
-- **RapidOCR CPU'da yavaş** (bu makinede ~0.5 sn/görüntü): yalnızca yedek. GPU için
-  `uv pip install onnxruntime-directml` + `rapid_use_dml = true` (denenmedi).
-- **CTranslate2 yedeği** kodlandı ama model dönüştürülüp denenmedi.
-- **Ekran ölçeklendirme:** overlay konumu yalnızca %100 ölçekte denendi; %125/%150'de ve farklı ölçekli çoklu
-  monitörde kayma olursa bildir.
-- **Exclusive fullscreen** pencereler overlay'i gizleyebilir → pencereli/kenarlıksız kullan.
-- Overlay, hedef pencere başka bir pencerenin arkasındayken de (altyazı varsa) en üstte görünür; `F8` ile kapat.
-- Global kısayollar tuşu yutmaz; aynı tuş odaktaki uygulamaya da gider.
+Çekirdek döngü `pipeline.py` içindedir ve arayüzden bağımsızdır; overlay uygulaması (`app.py`), test paneli
+(`ui/test_panel.py`) ve başsız test araçları aynı çekirdeği kullanır.
+
+```bash
+.venv\Scripts\python.exe -m pytest                                    # birim testleri
+.venv\Scripts\python.exe tools\make_test_video.py                     # out/synthetic.mp4 + ground_truth.srt
+.venv\Scripts\python.exe tools\replay_test.py out\synthetic.mp4 --ground-truth out\ground_truth.srt
+.venv\Scripts\python.exe tools\replay_test.py out\synthetic.mp4 --simulate-offline
+.venv\Scripts\python.exe tools\bench_ocr.py --errors                  # iki OCR motoru: süre + doğruluk
+.venv\Scripts\python.exe tools\bench_translate.py                     # katman başına süre + örnek çeviriler
+.venv\Scripts\python.exe tools\soak_test.py out\synthetic.mp4 --minutes 10   # bellek eğilimi
+```
+
+`replay_test.py` bir videoyu oynatıp her altyazı için CSV yazar ve p50/p95 gecikme, OCR doğruluğu (`.srt`
+verilirse), önbellek isabet oranı ve gizleme süresini basar. Kendi oyun kaydınla gerçek ölçüm alabilirsin.
+
+Opsiyonel ekler:
+
+- **RapidOCR (yedek OCR):** `python -m uv sync --extra rapid`, sonra `[ocr] engine = "rapid"`.
+- **CTranslate2 (üçüncü çeviri katmanı):** `python -m uv sync --extra ct2`, modeli dönüştür, `[translate.ct2] enabled = true`:
+
+  ```bash
+  uvx --from ctranslate2 --with transformers --with torch --with sentencepiece ct2-transformers-converter --model Helsinki-NLP/opus-mt-tc-big-en-tr --output_dir models/opus-mt-tc-big-en-tr-ct2 --quantization int8 --copy_files source.spm target.spm
+  ```
+
+### Tasarım kararları
+
+Özgün gereksinimler `SPEC.md` içindedir. Ondan bilerek ayrılan noktalar:
+
+- **OCR'a maske veriliyor.** "2x büyüt + kontrast" yerine parlak piksellerden siyah-beyaz metin görüntüsü
+  üretiliyor; Windows OCR doğruluğu gri görüntüde %76–98 arasında oynarken maskede %99.5–100 çıktı.
+  `[ocr] preprocess = "gray"` eski davranıştır.
+- **Hızlı onay.** OCR'lanan kareden sonraki karede görüntü değişmediyse ikinci OCR beklenmeden "kararlı"
+  sayılır (~1 kare kazanç). `[stabilize] fast_confirm = false` birebir iki OCR bekler.
+- **Ollama adresi `127.0.0.1`.** `localhost` ile Windows önce IPv6 dener ve istek başına ~260 ms kaybedilir.
+- **Monitör yakalama yedeği** `dxcam`/`bettercam` yerine `windows-capture` paketinin DXGI oturumunu kullanır.
+- **Yerel çeviriler de önbelleğe yazılır**, ama bulut erişilebilir olduğunda bir sonraki görülmede bulut
+  sonucuyla yükseltilir. Bulut kaydı asla yerelle ezilmez.
+- **Yeni satır kararlı olunca** çevirisi gelene dek eski Türkçe metin gizlenir; yanlış satırın üstünde kalmaz.
+- **Gecikme tanımı:** altyazının değiştiği ilk karenin programa ulaştığı an → çevirinin overlay'e gönderildiği
+  an. Akışın kendi gecikmesi (Remote Play) dahil değildir.
+- **Gemini güvenlik filtreleri kapalıdır** (`BLOCK_NONE`); +18 oyun diyaloğu boş dönmesin diye.

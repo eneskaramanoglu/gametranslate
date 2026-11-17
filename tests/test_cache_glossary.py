@@ -131,6 +131,15 @@ def test_rect_to_pixels_scales_with_window():
     assert y + h <= 720 and x + w <= 1280
 
 
+def test_first_run_creates_config_from_example(tmp_path):
+    (tmp_path / "config.example.toml").write_text('[capture]\nfps = 24  # örnek\n', encoding="utf-8")
+    settings = load_settings(tmp_path / "config.toml")
+    assert settings.capture.fps == 24
+    assert (tmp_path / "config.toml").read_text(encoding="utf-8") == '[capture]\nfps = 24  # örnek\n'
+    save_values(settings, {"capture.window_title": "PS Remote Play"})
+    assert "PS Remote Play" not in (tmp_path / "config.example.toml").read_text(encoding="utf-8")
+
+
 def test_save_values_roundtrip_keeps_comments(tmp_path):
     path = tmp_path / "config.toml"
     path.write_text(
